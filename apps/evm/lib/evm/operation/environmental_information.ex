@@ -206,7 +206,7 @@ defmodule EVM.Operation.EnvironmentalInformation do
         machine_state: machine_state
       }) do
     if size == 0 do
-      0
+      %{machine_state: machine_state}
     else
       data = Memory.read_zeroed_memory(exec_env.machine_code, code_offset, size)
       machine_state = Memory.write(machine_state, mem_offset, data)
