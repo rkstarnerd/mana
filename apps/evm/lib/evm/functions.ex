@@ -162,6 +162,9 @@ defmodule EVM.Functions do
   @spec not_enough_gas?(MachineState.t(), ExecEnv.t()) :: boolean()
   defp not_enough_gas?(machine_state, exec_env) do
     cost = Gas.cost(machine_state, exec_env)
+    operation = MachineCode.current_operation(machine_state, exec_env)
+    # IO.inspect operation
+    # IO.inspect "#{cost} > #{machine_state.gas}"
 
     cost > machine_state.gas
   end

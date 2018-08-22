@@ -90,7 +90,8 @@ defmodule EVM.VM do
       end
 
     case Functions.is_exception_halt?(machine_state, exec_env) do
-      {:halt, _reason} ->
+      {:halt, reason} ->
+        IO.inspect reason
         # We're exception halting, undo it all.
         # Question: should we return the original sub-state?
         {original_machine_state, original_sub_state, original_exec_env, :failed}
@@ -132,6 +133,7 @@ defmodule EVM.VM do
           {MachineState.t(), SubState.t(), ExecEnv.t()}
   def cycle(machine_state, sub_state, exec_env) do
     operation = MachineCode.current_operation(machine_state, exec_env)
+    EVM.Logger.log_state(operation, machine_state)
     inputs = Operation.inputs(operation, machine_state)
 
     machine_state = MachineState.subtract_gas(machine_state, exec_env)

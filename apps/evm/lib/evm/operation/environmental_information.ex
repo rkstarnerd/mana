@@ -45,6 +45,7 @@ defmodule EVM.Operation.EnvironmentalInformation do
         balance -> balance
       end
 
+    # IO.puts "#{wrapped_address|> :binary.encode_unsigned()|> Base.encode16} = #{balance}"
     machine_state = %{machine_state | stack: Stack.push(machine_state.stack, balance)}
 
     %{machine_state: machine_state}

@@ -134,6 +134,7 @@ defmodule EVM.Operation.StackMemoryStorageAndFlow do
   """
   @spec sstore(Operation.stack_args(), Operation.vm_map()) :: Operation.op_result()
   def sstore([key, value], %{exec_env: exec_env}) do
+    # IO.puts "#{key} #{value}"
     if value == 0 do
       case ExecEnv.get_storage(exec_env, key) do
         {:ok, _value} -> %{exec_env: ExecEnv.remove_storage(exec_env, key)}

@@ -10,8 +10,11 @@ defmodule EVM.Logger do
 
   @spec log_state(EVM.Operation.Metadata.t(), MachineState.t()) :: nil
   def log_state(operation, machine_state) do
-    log_opcode_and_gas_left(operation, machine_state)
-    log_inputs(operation, machine_state)
+    # IO.puts "#{operation_string(operation)} #{machine_state.gas}"
+    # IO.inspect machine_state.stack
+    # IO.puts machine_state.memory |> Base.encode16
+    # log_opcode_and_gas_left(operation, machine_state)
+    # log_inputs(operation, machine_state)
   end
 
   defp log_opcode_and_gas_left(operation, machine_state) do

@@ -139,6 +139,9 @@ defmodule EVM.Gas do
     memory_cost = memory_cost(operation.sym, inputs, machine_state)
 
     gas_cost = memory_cost + operation_cost
+    # IO.puts memory_cost
+    # IO.puts operation_cost
+    # IO.puts gas_cost
 
     if Configuration.fail_nested_operation_lack_of_gas?(exec_env.config) do
       if with_status, do: {:original, gas_cost}, else: gas_cost
@@ -331,9 +334,15 @@ defmodule EVM.Gas do
   def operation_cost(:sstore, [key, new_value], _machine_state, exec_env) do
     case ExecEnv.get_storage(exec_env, key) do
       :account_not_found ->
-        @g_sset
+        # IO.inspect "account not found"
+        if new_value != 0 do
+          @g_sset
+        else
+          @g_sreset
+        end
 
       :key_not_found ->
+        # IO.inspect "key not found"
         if new_value != 0 do
           @g_sset
         else
@@ -341,6 +350,7 @@ defmodule EVM.Gas do
         end
 
       {:ok, value} ->
+        IO.inspect "#{key} = #{value} -> #{new_value}"
         if new_value != 0 && value == 0 do
           @g_sset
         else
@@ -491,16 +501,21 @@ defmodule EVM.Gas do
   defp call_value_cost(_), do: @g_callvalue
 
   defp new_account_cost(exec_env, address, value) do
+    IO.inspect address |> Base.encode16
+    IO.inspect ExecEnv.non_existent_account?(exec_env, address)
     cond do
       !Configuration.empty_account_value_transfer?(exec_env.config) &&
           ExecEnv.non_existent_account?(exec_env, address) ->
+          IO.inspect "non exisent"
         @g_newaccount
 
       Configuration.empty_account_value_transfer?(exec_env.config) && value > 0 &&
+          # IO.inspect "non exisent or empty"
           ExecEnv.non_existent_or_empty_account?(exec_env, address) ->
         @g_newaccount
 
       true ->
+        # IO.inspect "exists"
         0
     end
   end
