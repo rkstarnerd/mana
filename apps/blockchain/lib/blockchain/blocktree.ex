@@ -24,15 +24,13 @@ defmodule Blockchain.Blocktree do
   defstruct block: nil,
             children: [],
             total_difficulty: 0,
-            best_block: nil,
-            parent_map: %{}
+            best_block: nil
 
   @type t :: %__MODULE__{
           block: :root | Block.t(),
           children: %{EVM.hash() => t},
           total_difficulty: integer(),
           best_block: Block.t() | nil,
-          parent_map: %{EVM.hash() => EVM.hash()}
         }
 
   @doc """
@@ -45,7 +43,6 @@ defmodule Blockchain.Blocktree do
         block: :root,
         children: %{},
         total_difficulty: 0,
-        parent_map: %{}
       }
   """
   @spec new_tree() :: t
@@ -54,7 +51,6 @@ defmodule Blockchain.Blocktree do
       block: :root,
       children: %{},
       total_difficulty: 0,
-      parent_map: %{}
     }
   end
 
@@ -66,7 +62,6 @@ defmodule Blockchain.Blocktree do
       block: gen_block,
       children: %{},
       total_difficulty: gen_block.header.difficulty,
-      parent_map: %{}
     }
   end
 
@@ -152,7 +147,7 @@ defmodule Blockchain.Blocktree do
       # Cache computed block hash
       block = %{block | block_hash: block_hash}
 
-      {:ok, add_block(blocktree, block)}
+      {:ok, add_block(blocktree, block, db)}
     end
   end
 
@@ -167,11 +162,12 @@ defmodule Blockchain.Blocktree do
 
   ## Examples
 
+      iex> db = MerklePatriciaTree.Test.random_ets_db()
       iex> block_1 = %Blockchain.Block{block_hash: <<1>>, header: %Block.Header{number: 5, parent_hash: <<0::256>>, difficulty: 100}}
       iex> block_2 = %Blockchain.Block{block_hash: <<2>>, header: %Block.Header{number: 6, parent_hash: <<1>>, difficulty: 110}}
       iex> Blockchain.Blocktree.new_tree()
-      ...> |> Blockchain.Blocktree.add_block(block_1)
-      ...> |> Blockchain.Blocktree.add_block(block_2)
+      ...> |> Blockchain.Blocktree.add_block(block_1, db)
+      ...> |> Blockchain.Blocktree.add_block(block_2, db)
       %Blockchain.Blocktree{
         block: :root,
         children: %{
@@ -182,29 +178,22 @@ defmodule Blockchain.Blocktree do
                 %Blockchain.Blocktree{
                   block: %Blockchain.Block{block_hash: <<2>>, header: %Block.Header{difficulty: 110, number: 6, parent_hash: <<1>>}},
                   children: %{},
-                  parent_map: %{},
                   total_difficulty: 110
                 }
             },
             total_difficulty: 110,
-            parent_map: %{},
           }
         },
         total_difficulty: 110,
         best_block: %Blockchain.Block{block_hash: <<2>>, header: %Block.Header{difficulty: 110, number: 6, parent_hash: <<1>>}},
-        parent_map: %{
-          <<1>> => <<0::256>>,
-          <<2>> => <<1>>,
-        }
       }
   """
-  @spec add_block(t, Block.t()) :: t
-  def add_block(blocktree, block) do
+  @spec add_block(t, Block.t(), MerklePatriciaTree.DB.db()) :: t
+  def add_block(blocktree, block, db) do
     block_hash = block.block_hash || Block.hash(block)
-    parent_map = Map.put(blocktree.parent_map, block_hash, block.header.parent_hash)
-    blocktree = %{blocktree | parent_map: parent_map}
+    MerklePatriciaTree.DB.put!(db, "parent_map::" <> block_hash, block.header.parent_hash)
 
-    case get_path_to_root(blocktree, block_hash) do
+    case get_path_to_root(blocktree, db, block_hash) do
       # TODO: How we can better handle this case?
       :no_path ->
         raise InvalidBlockError, "No path to root"
@@ -280,55 +269,103 @@ defmodule Blockchain.Blocktree do
 
   ## Examples
 
-      iex> Blockchain.Blocktree.get_path_to_root(
-      ...>   %Blockchain.Blocktree{parent_map: %{<<1>> => <<2>>, <<2>> => <<3>>, <<3>> => <<0::256>>}},
-      ...>   <<1>>)
+      iex> db = MerklePatriciaTree.Test.random_ets_db()
+      iex> tree = Blockchain.Blocktree.new_tree()
+      ...> |> Blockchain.Blocktree.add_block(%Blockchain.Block{
+      ...>      block_hash: <<3>>,
+      ...>      header: %Block.Header{parent_hash: <<0::256>>}
+      ...> }, db)
+      ...> |> Blockchain.Blocktree.add_block(%Blockchain.Block{
+      ...>      block_hash: <<2>>,
+      ...>      header: %Block.Header{parent_hash: <<3>>}
+      ...> }, db)
+      ...> |> Blockchain.Blocktree.add_block(%Blockchain.Block{
+      ...>      block_hash: <<1>>,
+      ...>      header: %Block.Header{parent_hash: <<2>>}
+      ...> }, db)
+      iex> Blockchain.Blocktree.get_path_to_root(tree, db, <<1>>)
       {:ok, [<<3>>, <<2>>]}
 
-      iex> Blockchain.Blocktree.get_path_to_root(
-      ...>   %Blockchain.Blocktree{parent_map: %{<<20>> => <<10>>, <<10>> => <<0::256>>}},
-      ...>   <<20>>)
+      iex> db = MerklePatriciaTree.Test.random_ets_db()
+      iex> tree = Blockchain.Blocktree.new_tree()
+      ...> |> Blockchain.Blocktree.add_block(%Blockchain.Block{
+      ...>      block_hash: <<10>>,
+      ...>      header: %Block.Header{parent_hash: <<0::256>>}
+      ...> }, db)
+      ...> |> Blockchain.Blocktree.add_block(%Blockchain.Block{
+      ...>      block_hash: <<20>>,
+      ...>      header: %Block.Header{parent_hash: <<10>>}
+      ...> }, db)
+      iex> Blockchain.Blocktree.get_path_to_root(tree, db, <<20>>)
       {:ok, [<<10>>]}
 
-      iex> Blockchain.Blocktree.get_path_to_root(
-      ...>   %Blockchain.Blocktree{parent_map: %{<<30>> => <<20>>, <<31>> => <<20>>, <<20>> => <<10>>, <<21 >> => <<10>>, <<10>> => <<0::256>>}},
-      ...>   <<30>>)
+      iex> db = MerklePatriciaTree.Test.random_ets_db()
+      iex> tree = Blockchain.Blocktree.new_tree()
+      ...> |> Blockchain.Blocktree.add_block(%Blockchain.Block{
+      ...>      block_hash: <<10>>,
+      ...>      header: %Block.Header{parent_hash: <<0::256>>}
+      ...> }, db)
+      ...> |> Blockchain.Blocktree.add_block(%Blockchain.Block{
+      ...>      block_hash: <<21>>,
+      ...>      header: %Block.Header{parent_hash: <<10>>}
+      ...> }, db)
+      ...> |> Blockchain.Blocktree.add_block(%Blockchain.Block{
+      ...>      block_hash: <<20>>,
+      ...>      header: %Block.Header{parent_hash: <<10>>}
+      ...> }, db)
+      ...> |> Blockchain.Blocktree.add_block(%Blockchain.Block{
+      ...>      block_hash: <<31>>,
+      ...>      header: %Block.Header{parent_hash: <<20>>}
+      ...> }, db)
+      ...> |> Blockchain.Blocktree.add_block(%Blockchain.Block{
+      ...>      block_hash: <<30>>,
+      ...>      header: %Block.Header{parent_hash: <<20>>}
+      ...> }, db)
+      iex> Blockchain.Blocktree.get_path_to_root(tree, db, <<30>>)
       {:ok, [<<10>>, <<20>>]}
-
-      iex> Blockchain.Blocktree.get_path_to_root(
-      ...>   %Blockchain.Blocktree{parent_map: %{<<30>> => <<20>>, <<31>> => <<20>>, <<20>> => <<10>>, <<21 >> => <<10>>, <<10>> => <<0::256>>}},
-      ...>   <<20>>)
-      {:ok, [<<10>>]}
-
-      iex> Blockchain.Blocktree.get_path_to_root(
-      ...>   %Blockchain.Blocktree{parent_map: %{<<30>> => <<20>>, <<31>> => <<20>>, <<20>> => <<10>>, <<21 >> => <<10>>, <<10>> => <<0::256>>}},
-      ...>   <<31>>)
-      {:ok, [<<10>>, <<20>>]}
-
-      iex> Blockchain.Blocktree.get_path_to_root(
-      ...>   %Blockchain.Blocktree{parent_map: %{<<30>> => <<20>>, <<31>> => <<20>>, <<20>> => <<10>>, <<21 >> => <<10>>, <<10>> => <<0::256>>}},
-      ...>   <<32>>)
+      iex> tree = Blockchain.Blocktree.new_tree()
+      ...> |> Blockchain.Blocktree.add_block(%Blockchain.Block{
+      ...>      block_hash: <<10>>,
+      ...>      header: %Block.Header{parent_hash: <<0::256>>}
+      ...> }, db)
+      ...> |> Blockchain.Blocktree.add_block(%Blockchain.Block{
+      ...>      block_hash: <<21>>,
+      ...>      header: %Block.Header{parent_hash: <<10>>}
+      ...> }, db)
+      ...> |> Blockchain.Blocktree.add_block(%Blockchain.Block{
+      ...>      block_hash: <<20>>,
+      ...>      header: %Block.Header{parent_hash: <<10>>}
+      ...> }, db)
+      ...> |> Blockchain.Blocktree.add_block(%Blockchain.Block{
+      ...>      block_hash: <<31>>,
+      ...>      header: %Block.Header{parent_hash: <<20>>}
+      ...> }, db)
+      ...> |> Blockchain.Blocktree.add_block(%Blockchain.Block{
+      ...>      block_hash: <<30>>,
+      ...>      header: %Block.Header{parent_hash: <<20>>}
+      ...> }, db)
+      iex> Blockchain.Blocktree.get_path_to_root(tree, db, <<32>>)
       :no_path
   """
-  @spec get_path_to_root(t, EVM.hash()) :: {:ok, [EVM.hash()]} | :no_path
-  def get_path_to_root(blocktree, hash) do
-    case do_get_path_to_root(blocktree, hash) do
+  @spec get_path_to_root(t, EVM.hash(), MerklePatriciaTree.DB.db()) :: {:ok, [EVM.hash()]} | :no_path
+  def get_path_to_root(blocktree, db, hash) do
+    case do_get_path_to_root(blocktree, db, hash) do
       {:ok, path} -> {:ok, Enum.reverse(path)}
       els -> els
     end
   end
 
-  @spec do_get_path_to_root(t, EVM.hash()) :: {:ok, [EVM.hash()]} | :no_path
-  defp do_get_path_to_root(blocktree, hash) do
-    case Map.get(blocktree.parent_map, hash, :no_path) do
-      :no_path ->
+  @spec do_get_path_to_root(t, EVM.hash(), MerklePatriciaTree.DB.db()) :: {:ok, [EVM.hash()]} | :no_path
+  defp do_get_path_to_root(blocktree, db, hash) do
+    case MerklePatriciaTree.DB.get(db, "parent_map::" <> hash) do
+      :not_found ->
         :no_path
 
-      <<0::256>> ->
+      {:ok, <<0::256>>} ->
         {:ok, []}
 
-      parent_hash ->
-        case do_get_path_to_root(blocktree, parent_hash) do
+      {:ok, parent_hash} ->
+        case do_get_path_to_root(blocktree, db, parent_hash) do
           :no_path -> :no_path
           {:ok, path} -> {:ok, [parent_hash | path]}
         end
@@ -346,10 +383,12 @@ defmodule Blockchain.Blocktree do
 
   ## Examples
 
+
+      iex> db = MerklePatriciaTree.Test.random_ets_db()
       iex> Blockchain.Blocktree.new_tree()
-      ...> |> Blockchain.Blocktree.add_block(%Blockchain.Block{block_hash: <<1>>, header: %Block.Header{number: 0, parent_hash: <<0::256>>, difficulty: 100}})
-      ...> |> Blockchain.Blocktree.add_block(%Blockchain.Block{block_hash: <<2>>, header: %Block.Header{number: 1, parent_hash: <<0::256>>, difficulty: 110}})
-      ...> |> Blockchain.Blocktree.add_block(%Blockchain.Block{block_hash: <<3>>, header: %Block.Header{number: 2, parent_hash: <<0::256>>, difficulty: 120}})
+      ...> |> Blockchain.Blocktree.add_block(%Blockchain.Block{block_hash: <<1>>, header: %Block.Header{number: 0, parent_hash: <<0::256>>, difficulty: 100}}, db)
+      ...> |> Blockchain.Blocktree.add_block(%Blockchain.Block{block_hash: <<2>>, header: %Block.Header{number: 1, parent_hash: <<0::256>>, difficulty: 110}}, db)
+      ...> |> Blockchain.Blocktree.add_block(%Blockchain.Block{block_hash: <<3>>, header: %Block.Header{number: 2, parent_hash: <<0::256>>, difficulty: 120}}, db)
       ...> |> Blockchain.Blocktree.inspect_tree()
       [:root, [{0, <<1>>}], [{1, <<2>>}], [{2, <<3>>}]]
   """

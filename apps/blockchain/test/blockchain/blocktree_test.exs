@@ -59,6 +59,7 @@ defmodule Blockchain.BlocktreeTest do
   end
 
   test "multi-level tree" do
+    db = MerklePatriciaTree.Test.random_ets_db()
     block_10 = %Blockchain.Block{
       block_hash: <<10>>,
       header: %Block.Header{number: 0, parent_hash: <<0::256>>, difficulty: 100}
@@ -86,11 +87,11 @@ defmodule Blockchain.BlocktreeTest do
 
     tree =
       Blocktree.new_tree()
-      |> Blocktree.add_block(block_10)
-      |> Blocktree.add_block(block_20)
-      |> Blocktree.add_block(block_21)
-      |> Blocktree.add_block(block_30)
-      |> Blocktree.add_block(block_40)
+      |> Blocktree.add_block(block_10, db)
+      |> Blocktree.add_block(block_20, db)
+      |> Blocktree.add_block(block_21, db)
+      |> Blocktree.add_block(block_30, db)
+      |> Blocktree.add_block(block_40, db)
 
     assert Blocktree.inspect_tree(tree) ==
              [
